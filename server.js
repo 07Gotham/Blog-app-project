@@ -2,9 +2,12 @@ require("dotenv").config();
 
 const express = require("express");
 const cors = require("cors");
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const crypto = require("crypto");
+
+const User = require("./models/User");
+const Blog = require("./models/Blog");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -13,18 +16,21 @@ if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET is missing from .env");
 }
 
-app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:5173"
-}));
-app.use(express.json({ limit: "20kb" }));
+if (!process.env.MONGODB_URI) {
+  throw new Error("MONGODB_URI is missing from .env");
+}
 
-// Temporary storage. Data disappears when the server restarts.
-const users = [];
-const blogs = [];
+app.use(
+  cors({
+    origin: process.env.CLIENT_URL || "http://localhost:5173",
+  })
+);
+
+app.use(express.json({ limit: "100kb" }));
 
 function createToken(user) {
   return jwt.sign(
-    { sub: user.id, email: user.email },
+    { sub: user._id.toString(), email: user.email },
     process.env.JWT_SECRET,
     { expiresIn: "2h" }
   );
@@ -42,125 +48,239 @@ function authenticateToken(req, res, next) {
     req.auth = jwt.verify(token, process.env.JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({ message: "Invalid or expired token" });
+    return res
+      .status(401)
+      .json({ message: "Invalid or expired token" });
   }
 }
 
-// Health check
 app.get("/api/health", (req, res) => {
-  res.json({ status: "ok", message: "Inkwell API is running" });
+  res.json({
+    status: "ok",
+    message: "Inkwell API is running",
+  });
 });
 
-// Register a user
+// Register
 app.post("/api/auth/register", async (req, res) => {
   try {
     const { name, email, password } = req.body || {};
 
     if (
-      typeof name !== "string" || !name.trim() ||
+      typeof name !== "string" ||
+      !name.trim() ||
       typeof email !== "string" ||
       !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
-      typeof password !== "string" || password.length < 8
+      typeof password !== "string" ||
+      password.length < 8
     ) {
       return res.status(400).json({
-        message: "Provide a name, valid email, and password of at least 8 characters"
+        message: "Provide a name, valid email, and password of at least 8 characters",
       });
     }
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    if (users.some(user => user.email === normalizedEmail)) {
-      return res.status(409).json({ message: "Email is already registered" });
+    const existingUser = await User.findOne({
+      email: normalizedEmail,
+    });
+
+    if (existingUser) {
+      return res.status(409).json({
+        message: "Email is already registered",
+      });
     }
 
     const passwordHash = await bcrypt.hash(password, 12);
 
-    const user = {
-      id: crypto.randomUUID(),
+    const user = await User.create({
       name: name.trim(),
       email: normalizedEmail,
-      passwordHash
-    };
+      passwordHash,
+    });
 
-    users.push(user);
-
-    res.status(201).json({
+    return res.status(201).json({
       message: "Registration successful",
       token: createToken(user),
-      user: { id: user.id, name: user.name, email: user.email }
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
     });
-  } catch {
-    res.status(500).json({ message: "Registration failed" });
+  } catch (error) {
+    if (error.code === 11000) {
+      return res.status(409).json({
+        message: "Email is already registered",
+      });
+    }
+
+    console.error("Registration error:", error.message);
+    return res.status(500).json({
+      message: "Registration failed",
+    });
   }
 });
 
-// Login a user
+// Login
 app.post("/api/auth/login", async (req, res) => {
-  const { email, password } = req.body || {};
+  try {
+    const { email, password } = req.body || {};
 
-  if (typeof email !== "string" || typeof password !== "string") {
-    return res.status(400).json({ message: "Email and password are required" });
-  }
+    if (
+      typeof email !== "string" ||
+      typeof password !== "string"
+    ) {
+      return res.status(400).json({
+        message: "Email and password are required",
+      });
+    }
 
-  const user = users.find(
-    item => item.email === email.trim().toLowerCase()
-  );
+    const user = await User.findOne({
+      email: email.trim().toLowerCase(),
+    }).select("+passwordHash");
 
-  if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
-    return res.status(401).json({ message: "Invalid email or password" });
-  }
+    if (
+      !user ||
+      !(await bcrypt.compare(password, user.passwordHash))
+    ) {
+      return res.status(401).json({
+        message: "Invalid email or password",
+      });
+    }
 
-  res.json({
-    message: "Login successful",
-    token: createToken(user),
-    user: { id: user.id, name: user.name, email: user.email }
-  });
-});
-
-// Create a blog (login required)
-app.post("/api/blogs", authenticateToken, (req, res) => {
-  const { title, category, excerpt } = req.body || {};
-
-  if (
-    typeof title !== "string" || !title.trim() ||
-    typeof category !== "string" || !category.trim() ||
-    typeof excerpt !== "string" || !excerpt.trim()
-  ) {
-    return res.status(400).json({
-      message: "Title, category, and introduction are required"
+    return res.json({
+      message: "Login successful",
+      token: createToken(user),
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
+  } catch (error) {
+    console.error("Login error:", error.message);
+    return res.status(500).json({
+      message: "Login failed",
     });
   }
-
-  const user = users.find(item => item.id === req.auth.sub);
-
-  if (!user) {
-    return res.status(401).json({ message: "User no longer exists" });
-  }
-
-  const blog = {
-    id: crypto.randomUUID(),
-    title: title.trim(),
-    category: category.trim(),
-    excerpt: excerpt.trim(),
-    author: user.name,
-    userId: user.id,
-    createdAt: new Date().toISOString()
-  };
-
-  blogs.unshift(blog);
-
-  res.status(201).json({ message: "Blog created", blog });
 });
 
-// List published blogs
-app.get("/api/blogs", (req, res) => {
-  res.json({ blogs });
+// Create a blog — login required
+app.post("/api/blogs", authenticateToken, async (req, res) => {
+  try {
+    const { title, category, excerpt, content = "" } = req.body || {};
+
+    if (
+      typeof title !== "string" || !title.trim() ||
+      typeof category !== "string" || !category.trim() ||
+      typeof excerpt !== "string" || !excerpt.trim() ||
+      typeof content !== "string"
+    ) {
+      return res.status(400).json({
+        message: "Valid title, category, introduction, and content are required",
+      });
+    }
+
+    if (
+      title.length > 200 ||
+      category.length > 80 ||
+      excerpt.length > 1000 ||
+      content.length > 50000
+    ) {
+      return res.status(400).json({
+        message: "One or more blog fields exceed the allowed length",
+      });
+    }
+
+    const user = await User.findById(req.auth.sub);
+
+    if (!user) {
+      return res.status(401).json({
+        message: "User no longer exists",
+      });
+    }
+
+    const blog = await Blog.create({
+      title: title.trim(),
+      category: category.trim(),
+      excerpt: excerpt.trim(),
+      content: content.trim(),
+      author: user.name,
+      userId: user._id,
+    });
+
+    return res.status(201).json({
+      message: "Blog created",
+      blog,
+    });
+  } catch (error) {
+    console.error("Create blog error:", error.message);
+    return res.status(500).json({
+      message: "Could not create blog",
+    });
+  }
+});
+
+// Retrieve all blogs
+app.get("/api/blogs", async (req, res) => {
+  try {
+    const blogs = await Blog.find()
+      .sort({ createdAt: -1 })
+      .lean();
+
+    return res.json({ blogs });
+  } catch (error) {
+    console.error("List blogs error:", error.message);
+    return res.status(500).json({
+      message: "Could not retrieve blogs",
+    });
+  }
+});
+
+// Retrieve one blog by its database ID
+app.get("/api/blogs/:id", async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({
+        message: "Invalid blog ID",
+      });
+    }
+
+    const blog = await Blog.findById(req.params.id).lean();
+
+    if (!blog) {
+      return res.status(404).json({
+        message: "Blog not found",
+      });
+    }
+
+    return res.json({ blog });
+  } catch (error) {
+    console.error("Get blog error:", error.message);
+    return res.status(500).json({
+      message: "Could not retrieve blog",
+    });
+  }
 });
 
 app.use((req, res) => {
   res.status(404).json({ message: "API route not found" });
 });
 
-app.listen(PORT, () => {
-  console.log(`Inkwell API running at http://localhost:${PORT}`);
-});
+async function startServer() {
+  try {
+    await mongoose.connect(process.env.MONGODB_URI);
+
+    console.log("Connected to MongoDB");
+
+    app.listen(5000, () => {
+      console.log(`Inkwell API running at http://localhost:${5000}`);
+    });
+  } catch (error) {
+    console.error("MongoDB connection failed:", error.message);
+    process.exit(1);
+  }
+}
+
+startServer();
