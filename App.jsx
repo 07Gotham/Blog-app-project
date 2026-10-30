@@ -1,5 +1,6 @@
-import { BrowserRouter, Routes, Route, Link, NavLink, useNavigate } from "react-router-dom";
-import { useState } from "react";
+import { registerUser,loginUser,createBlog,getBlogs,getBlogsById } from "./api";
+import { BrowserRouter, Routes, Route, Link, NavLink, useNavigate,useParams } from "react-router-dom";
+import { useState,useEffect } from "react";
 import "./App.css";
 
 const initialBlogs = [
@@ -108,7 +109,7 @@ function Home({ blogs }) {
               </div>
               <div className="card-body">
                 <div className="muted small">{blog.date} · {blog.read}</div>
-                <h3>{blog.title}</h3>
+                <h3><Link to={`/blog/${blog._id || blog.id}`}>{blog.title}</Link></h3>
                 <p>{blog.excerpt}</p>
                 <div className="author">✦ &nbsp;{blog.author}</div>
               </div>
@@ -124,29 +125,148 @@ function Home({ blogs }) {
 
 function Login() {
   const navigate = useNavigate();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleLogin(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const data = await loginUser({ email, password });
+
+      sessionStorage.setItem("inkwell_token", data.token);
+      sessionStorage.setItem("inkwell_user", JSON.stringify(data.user));
+
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <AuthLayout title="Welcome back" subtitle="Your next great read is waiting.">
-      <form onSubmit={(e) => { e.preventDefault(); navigate("/dashboard"); }}>
-        <label>Email address<input type="email" placeholder="you@example.com" required /></label>
-        <label>Password<input type="password" placeholder="Enter your password" required /></label>
-        <button className="button button-dark full">Log in →</button>
+    <AuthLayout
+      title="Welcome back"
+      subtitle="Your next great read is waiting."
+    >
+      <form onSubmit={handleLogin}>
+        <label>
+          Email address
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+          />
+        </label>
+
+        <label>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+          />
+        </label>
+
+        {error && <p role="alert" className="error-message">{error}</p>}
+
+        <button className="button button-dark full" disabled={loading}>
+          {loading ? "Logging in..." : "Log in →"}
+        </button>
       </form>
-      <p className="auth-switch">New to Inkwell? <Link to="/register">Create an account</Link></p>
+
+      <p className="auth-switch">
+        New to Inkwell? <Link to="/register">Create an account</Link>
+      </p>
     </AuthLayout>
   );
 }
 
 function Register() {
   const navigate = useNavigate();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleRegister(e) {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+
+    try {
+      const data = await registerUser({ name, email, password });
+
+      // Temporary demo storage. We'll improve token storage later.
+      sessionStorage.setItem("inkwell_token", data.token);
+      sessionStorage.setItem("inkwell_user", JSON.stringify(data.user));
+
+      navigate("/dashboard");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <AuthLayout title="Join the community" subtitle="Create an account and share your perspective.">
-      <form onSubmit={(e) => { e.preventDefault(); navigate("/dashboard"); }}>
-        <label>Your name<input placeholder="Alex Morgan" required /></label>
-        <label>Email address<input type="email" placeholder="you@example.com" required /></label>
-        <label>Password<input type="password" minLength="6" placeholder="At least 6 characters" required /></label>
-        <button className="button button-dark full">Create account →</button>
+    <AuthLayout
+      title="Join the community"
+      subtitle="Create an account and share your perspective."
+    >
+      <form onSubmit={handleRegister}>
+        <label>
+          Your name
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Alex Morgan"
+            required
+          />
+        </label>
+
+        <label>
+          Email address
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
+            required
+          />
+        </label>
+
+        <label>
+          Password
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={8}
+            placeholder="At least 8 characters"
+            required
+          />
+        </label>
+
+        {error && <p role="alert" className="error-message">{error}</p>}
+
+        <button className="button button-dark full" disabled={loading}>
+          {loading ? "Creating account..." : "Create account →"}
+        </button>
       </form>
-      <p className="auth-switch">Already a member? <Link to="/login">Log in</Link></p>
+
+      <p className="auth-switch">
+        Already a member? <Link to="/login">Log in</Link>
+      </p>
     </AuthLayout>
   );
 }
@@ -193,62 +313,185 @@ function Dashboard({ blogs }) {
 
 function CreateBlog({ onCreate }) {
   const navigate = useNavigate();
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("Technology");
-  const [excerpt, setExcerpt] = useState("");
-  const [author, setAuthor] = useState("");
 
-  function submit(e) {
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("");
+  const [excerpt, setExcerpt] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function handleSubmit(e) {
     e.preventDefault();
-    onCreate({
-      id: Date.now(),
-      title,
-      category,
-      excerpt,
-      author: author || "Guest Writer",
-      date: new Date().toLocaleDateString("en-US", { month: "short", day: "2-digit", year: "numeric" }),
-      read: "3 min read",
-      color: "mint",
-    });
-    navigate("/");
+    setError("");
+
+    const token = sessionStorage.getItem("inkwell_token");
+
+    if (!token) {
+      setError("Please log in before creating a blog.");
+      return;
+    }
+
+    setLoading(true);
+
+    try {
+      const result = await createBlog(
+        { title, category, excerpt },
+        token
+      );
+
+      onCreate(result.blog);
+
+      navigate("/");
+    } catch (err) {
+      setError(err.message || "Could not create blog.");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
-    <main className="create-page content">
-      <span className="eyebrow">THE WRITING ROOM</span>
-      <h1>Every story starts somewhere.</h1>
-      <p className="muted">Put your thoughts into words.</p>
-      <form className="editor-card" onSubmit={submit}>
-        <label>Story title<input value={title} onChange={e => setTitle(e.target.value)} placeholder="Give your story a title..." required /></label>
-        <label>Author name<input value={author} onChange={e => setAuthor(e.target.value)} placeholder="Your name" /></label>
-        <label>Category
-          <select value={category} onChange={e => setCategory(e.target.value)}>
-            <option>Technology</option><option>Lifestyle</option><option>Creativity</option>
-          </select>
-        </label>
-        <label>Short introduction<textarea value={excerpt} onChange={e => setExcerpt(e.target.value)} placeholder="What is your story about?" rows="6" required /></label>
-        <div className="editor-actions">
-          <Link to="/" className="text-link">Cancel</Link>
-          <button className="button button-dark">Publish story →</button>
-        </div>
+    <main className="auth-page">
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <h1>Create a Blog</h1>
+        <p>Share your story with the Inkwell community.</p>
+
+        {error && <p className="error-message">{error}</p>}
+
+        <label htmlFor="blog-title">Title</label>
+        <input
+          id="blog-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Enter your blog title"
+          required
+        />
+
+        <label htmlFor="blog-category">Category</label>
+        <input
+          id="blog-category"
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          placeholder="Technology, Lifestyle..."
+          required
+        />
+
+        <label htmlFor="blog-excerpt">Introduction</label>
+        <textarea
+          id="blog-excerpt"
+          value={excerpt}
+          onChange={(e) => setExcerpt(e.target.value)}
+          placeholder="Write a short introduction"
+          rows={5}
+          required
+        />
+
+        <button type="submit" disabled={loading}>
+          {loading ? "Publishing..." : "Publish Blog"}
+        </button>
       </form>
     </main>
   );
 }
 
+
+function BlogDetails() {
+  const { id } = useParams();
+  const [blog, setBlog] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    async function loadBlog() {
+      try {
+        const result = await getBlogById(id);
+        setBlog(result.blog);
+      } catch (err) {
+        setError(err.message || "Could not load blog.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadBlog();
+  }, [id]);
+
+  if (loading) return <main className="content">Loading blog...</main>;
+  if (error) return <main className="content">{error}</main>;
+  if (!blog) return <main className="content">Blog not found.</main>;
+
+  return (
+    <main className="content">
+      <Link to="/">← Back to stories</Link>
+      <article className="blog-detail">
+        <span className="eyebrow">{blog.category}</span>
+        <h1>{blog.title}</h1>
+        <p className="muted">
+          By {blog.author}
+          {blog.createdAt &&
+            ` · ${new Date(blog.createdAt).toLocaleDateString()}`}
+        </p>
+        <p>{blog.excerpt}</p>
+        <div className="blog-content">{blog.content}</div>
+      </article>
+    </main>
+  );
+}
+
 function AppContent() {
-  const [blogs, setBlogs] = useState(initialBlogs);
-  const addBlog = (blog) => setBlogs(previous => [blog, ...previous]);
+  const [blogs, setBlogs] = useState([]);
+  const [blogsLoading, setBlogsLoading] = useState(true);
+  const [blogsError, setBlogsError] = useState("");
+
+
+useEffect(() => {
+  let cancelled = false;
+
+  async function loadBlogs() {
+    try {
+      setBlogsLoading(true);
+      setBlogsError("");
+
+      const result = await getBlogs();
+
+      if (!cancelled) {
+        setBlogs(result.blogs || []);
+      }
+    } catch (error) {
+      if (!cancelled) {
+        setBlogsError(error.message || "Could not load blogs.");
+      }
+    } finally {
+      if (!cancelled) {
+        setBlogsLoading(false);
+      }
+    }
+  }
+
+  loadBlogs();
+
+  return () => {
+    cancelled = true;
+  };
+}, []);
+
+  function addBlog(blog) {
+    setBlogs((previousBlogs) => [blog, ...previousBlogs]);
+  }
 
   return (
     <>
       <Header />
+
+      {blogsLoading && <p>Loading blogs...</p>}
+      {blogsError && <p className="error-message">{blogsError}</p>}
+
       <Routes>
         <Route path="/" element={<Home blogs={blogs} />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/dashboard" element={<Dashboard blogs={blogs} />} />
         <Route path="/create" element={<CreateBlog onCreate={addBlog} />} />
+        <Route path="/blog/:id" element={<BlogDetails />} />
       </Routes>
     </>
   );
