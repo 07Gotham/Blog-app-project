@@ -1,4 +1,4 @@
-import { registerUser,loginUser,createBlog,getBlogs,getBlogsById } from "./api";
+import { registerUser,loginUser,createBlog,getBlogs,getBlogById,updateBlog,deleteBlog} from "./api";
 import { BrowserRouter, Routes, Route, Link, NavLink, useNavigate,useParams } from "react-router-dom";
 import { useState,useEffect } from "react";
 import "./App.css";
@@ -56,11 +56,17 @@ function Home({ blogs }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
 
-  const filtered = blogs.filter((blog) => {
-    const matchesSearch = `${blog.title} ${blog.excerpt} ${blog.author}`
-      .toLowerCase().includes(search.toLowerCase());
-    return matchesSearch && (category === "All" || blog.category === category);
-  });
+const filteredBlogs = blogs.filter((blog) => {
+  const matchesSearch =
+    `${blog.title} ${blog.excerpt} ${blog.content || ""}`
+      .toLowerCase()
+      .includes(search.toLowerCase());
+
+  const matchesCategory =
+    category === "All" || blog.category === category;
+
+  return matchesSearch && matchesCategory;
+});
 
   return (
     <>
@@ -78,7 +84,7 @@ function Home({ blogs }) {
             <span className="eyebrow">THE JOURNAL</span>
             <h2>Explore stories</h2>
           </div>
-          <span className="muted">{filtered.length} stories</span>
+         <span className="muted">{filteredBlogs.length} stories</span>
         </div>
 
         <input
@@ -99,10 +105,22 @@ function Home({ blogs }) {
             </button>
           ))}
         </div>
+        <select
+  value={category}
+  onChange={(e) => setCategory(e.target.value)}
+>
+  <option value="All">All Categories</option>
+
+  {[...new Set(blogs.map((blog) => blog.category))].map((item) => (
+    <option key={item} value={item}>
+      {item}
+    </option>
+  ))}
+</select>
 
         <div className="blog-grid">
-          {filtered.map((blog) => (
-            <article className="blog-card" key={blog.id}>
+          {filteredBlogs.map((blog) => (
+            <article className="blog-card" key={blog._id}>
               <div className={`card-art ${blog.color}`}>
                 <span>{blog.category}</span>
                 <span className="art-symbol">✳</span>
@@ -115,7 +133,7 @@ function Home({ blogs }) {
               </div>
             </article>
           ))}
-          {filtered.length === 0 && <p>No stories found. Try another search.</p>}
+          {filteredBlogs.length === 0 && <p>No stories found. Try another search.</p>}
         </div>
       </main>
       <footer>inkwell. <span>Made for curious minds.</span></footer>
@@ -285,7 +303,89 @@ function AuthLayout({ title, subtitle, children }) {
   );
 }
 
-function Dashboard({ blogs }) {
+
+function Dashboard({ blogs, setBlogs }) {
+  const navigate = useNavigate();
+
+  async function handleDelete(id) {
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this blog?"
+    );
+
+    if (!confirmed) return;
+
+    try {
+      const token = sessionStorage.getItem("inkwell_token");
+
+      await deleteBlog(id, token);
+
+      setBlogs((previous) =>
+        previous.filter((blog) => blog._id !== id)
+      );
+
+      alert("Blog deleted successfully!");
+    } catch (error) {
+      alert(error.message || "Could not delete blog");
+    }
+  }
+
+  return (
+    <main className="dashboard content">
+      <span className="eyebrow">YOUR WORKSPACE</span>
+      <h1>Your dashboard.</h1>
+      <p className="muted">A home for your ideas and stories.</p>
+
+      <div className="stats">
+        <div>
+          <span>Stories</span>
+          <strong>{blogs.length}</strong>
+        </div>
+        <div>
+          <span>Categories</span>
+          <strong>{new Set(blogs.map(b => b.category)).size}</strong>
+        </div>
+        <div>
+          <span>Workspace</span>
+          <strong>Ready</strong>
+        </div>
+      </div>
+
+      <div className="section-heading">
+        <h2>Recent stories</h2>
+        <Link className="button button-dark" to="/create">
+          + New story
+        </Link>
+      </div>
+
+      {blogs.length === 0 && <p>No blogs published yet.</p>}
+
+      {blogs.map((blog) => (
+        <article className="dashboard-row" key={blog._id}>
+          <div>
+            <strong>{blog.title}</strong>
+            <p className="muted small">{blog.category}</p>
+          </div>
+
+          <div className="dashboard-actions">
+            <button
+              type="button"
+              onClick={() => navigate(`/edit/${blog._id}`)}
+            >
+             Edit
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleDelete(blog._id)}
+            >
+             Delete
+            </button>
+          </div>
+        </article>
+      ))}
+    </main>
+  );
+
   return (
     <main className="dashboard content">
       <span className="eyebrow">YOUR WORKSPACE</span>
@@ -307,7 +407,20 @@ function Dashboard({ blogs }) {
         </article>
       ))}
       <p className="muted small">Demo dashboard: accounts and stories are not saved to a server yet.</p>
-    </main>
+    <button
+  type="button"
+  onClick={() => navigate(`/edit/${blog._id}`)}
+>
+  Edit
+</button>
+
+<button
+  type="button"
+  onClick={() => handleDelete(blog._id)}
+>
+  Delete
+</button>
+</main>
   );
 }
 
@@ -393,6 +506,106 @@ function CreateBlog({ onCreate }) {
   );
 }
 
+
+function EditBlog() {
+  const { id } = useParams();
+  const navigate = useNavigate();
+
+  const [title, setTitle] = useState("");
+  const [category, setCategory] = useState("");
+  const [excerpt, setExcerpt] = useState("");
+  const [content, setContent] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBlog() {
+      try {
+        const result = await getBlogById(id);
+        const blog = result.blog;
+
+        if (!cancelled) {
+          setTitle(blog.title);
+          setCategory(blog.category);
+          setExcerpt(blog.excerpt);
+          setContent(blog.content || "");
+        }
+      } catch (err) {
+        if (!cancelled) setError(err.message);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    loadBlog();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+
+    try {
+      const token = sessionStorage.getItem("inkwell_token");
+
+      await updateBlog(
+        id,
+        { title, category, excerpt, content },
+        token
+      );
+
+      navigate(`/blog/${id}`);
+    } catch (err) {
+      setError(err.message || "Could not update blog");
+    }
+  }
+
+  if (loading) return <p>Loading blog...</p>;
+
+  return (
+    <main className="auth-page">
+      <form className="auth-card" onSubmit={handleSubmit}>
+        <h1>Edit Blog</h1>
+
+        {error && <p className="error-message">{error}</p>}
+
+        <label>Title</label>
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          required
+        />
+
+        <label>Category</label>
+        <input
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          required
+        />
+
+        <label>Introduction</label>
+        <textarea
+          value={excerpt}
+          onChange={(e) => setExcerpt(e.target.value)}
+          required
+        />
+
+        <label>Content</label>
+        <textarea
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          rows={8}
+        />
+
+        <button type="submit">Save Changes</button>
+      </form>
+    </main>
+  );
+}
 
 function BlogDetails() {
   const { id } = useParams();
@@ -489,9 +702,10 @@ useEffect(() => {
         <Route path="/" element={<Home blogs={blogs} />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/dashboard" element={<Dashboard blogs={blogs} />} />
+        <Route path="/dashboard"element={<Dashboard blogs={blogs} setBlogs={setBlogs} />} />
         <Route path="/create" element={<CreateBlog onCreate={addBlog} />} />
         <Route path="/blog/:id" element={<BlogDetails />} />
+        <Route path="/edit/:id" element={<EditBlog />} />
       </Routes>
     </>
   );
