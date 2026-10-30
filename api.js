@@ -39,8 +39,8 @@ export function getBlogs() {
   return request("/blogs");
 }
 
-export function getBlogsById(id) {
-  return request("/blogs/${encodeURIComponent(id)}");
+export function getBlogById(id) {
+  return request(`/blogs/${encodeURIComponent(id)}`);
 }
 
 export function createBlog(blog, token) {
@@ -49,4 +49,31 @@ export function createBlog(blog, token) {
     token,
     body: JSON.stringify(blog)
   });
+}
+
+
+export function updateBlog(id, blog, token) {
+  return request(`/blogs/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(blog),
+    token,
+  });
+}
+
+export function deleteBlog(id, token) {
+  return request(`/blogs/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export function searchBlogs(search, category) {
+  const params = new URLSearchParams();
+
+  if (search) params.set("search", search);
+  if (category && category !== "All") {
+    params.set("category", category);
+  }
+
+  return request(`/blogs?${params.toString()}`);
 }
