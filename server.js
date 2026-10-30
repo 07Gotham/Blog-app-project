@@ -225,25 +225,43 @@ app.post("/api/blogs", authenticateToken, async (req, res) => {
 // Retrieve all blogs
 app.get("/api/blogs", async (req, res) => {
   try {
-    const blogs = await Blog.find()
+    const { search, category } = req.query;
+    const filter = {};
+
+    if (category && category !== "All") {
+      filter.category = category;
+    }
+
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: "i" } },
+        { excerpt: { $regex: search, $options: "i" } },
+        { content: { $regex: search, $options: "i" } },
+        { author: { $regex: search, $options: "i" } }
+      ];
+    }
+
+    const blogs = await Blog.find(filter)
       .sort({ createdAt: -1 })
       .lean();
 
-    return res.json({ blogs });
+    res.json({ blogs });
+
   } catch (error) {
-    console.error("List blogs error:", error.message);
-    return res.status(500).json({
-      message: "Could not retrieve blogs",
+    console.error(error);
+    res.status(500).json({
+      message: "Could not retrieve blogs"
     });
   }
 });
 
 // Retrieve one blog by its database ID
+
 app.get("/api/blogs/:id", async (req, res) => {
   try {
     if (!mongoose.isValidObjectId(req.params.id)) {
       return res.status(400).json({
-        message: "Invalid blog ID",
+        message: "Invalid blog ID"
       });
     }
 
@@ -251,16 +269,95 @@ app.get("/api/blogs/:id", async (req, res) => {
 
     if (!blog) {
       return res.status(404).json({
-        message: "Blog not found",
+        message: "Blog not found"
       });
     }
 
-    return res.json({ blog });
+    res.json({ blog });
+
   } catch (error) {
-    console.error("Get blog error:", error.message);
-    return res.status(500).json({
-      message: "Could not retrieve blog",
+    console.error(error);
+    res.status(500).json({
+      message: "Could not retrieve blog"
     });
+  }
+});
+
+app.put("/api/blogs/:id", authenticateToken, async (req, res) => {
+  try {
+    const { title, category, excerpt, content = "" } = req.body;
+
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid blog ID" });
+    }
+
+    if (
+      typeof title !== "string" || !title.trim() ||
+      typeof category !== "string" || !category.trim() ||
+      typeof excerpt !== "string" || !excerpt.trim() ||
+      typeof content !== "string"
+    ) {
+      return res.status(400).json({ message: "All required fields must be valid" });
+    }
+
+    if (
+      title.length > 200 ||
+      category.length > 80 ||
+      excerpt.length > 1000 ||
+      content.length > 50000
+    ) {
+      return res.status(400).json({ message: "Blog fields are too long" });
+    }
+
+    const blog = await Blog.findOneAndUpdate(
+      {
+        _id: req.params.id,
+        userId: req.auth.sub,
+      },
+      {
+        title: title.trim(),
+        category: category.trim(),
+        excerpt: excerpt.trim(),
+        content: content.trim(),
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!blog) {
+      return res.status(404).json({
+        message: "Blog not found or you are not its owner",
+      });
+    }
+
+    res.json({ message: "Blog updated successfully", blog });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not update blog" });
+  }
+});
+
+
+app.delete("/api/blogs/:id", authenticateToken, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(400).json({ message: "Invalid blog ID" });
+    }
+
+    const blog = await Blog.findOneAndDelete({
+      _id: req.params.id,
+      userId: req.auth.sub,
+    });
+
+    if (!blog) {
+      return res.status(404).json({
+        message: "Blog not found or you are not its owner",
+      });
+    }
+
+    res.json({ message: "Blog deleted successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Could not delete blog" });
   }
 });
 
