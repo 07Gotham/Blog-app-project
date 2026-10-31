@@ -1,5 +1,5 @@
-import { registerUser,loginUser,createBlog,getBlogs,getBlogById,updateBlog,deleteBlog} from "./api";
-import { BrowserRouter, Routes, Route, Link, NavLink, useNavigate,useParams } from "react-router-dom";
+import { registerUser,loginUser,createBlog,getBlogs,getBlogById,updateBlog,deleteBlog,getMyBlogs,getMyProfile} from "./api";
+import { BrowserRouter, Routes, Route, Link, NavLink, useNavigate,useParams,Navigate } from "react-router-dom";
 import { useState,useEffect } from "react";
 import "./App.css";
 
@@ -37,107 +37,131 @@ const initialBlogs = [
 ];
 
 function Header() {
+  const navigate = useNavigate();
+
+  const token = sessionStorage.getItem("inkwell_token");
+
+  function handleLogout() {
+    sessionStorage.removeItem("inkwell_token");
+    sessionStorage.removeItem("inkwell_user");
+
+    navigate("/login");
+  }
+
   return (
     <header className="topbar">
-      <Link to="/" className="brand">ink<span>well.</span></Link>
+      <Link to="/" className="brand">
+        ink<span>well.</span>
+      </Link>
+
       <nav>
         <NavLink to="/">Explore</NavLink>
-        <NavLink to="/dashboard">Dashboard</NavLink>
+
+        {token && (
+          <NavLink to="/dashboard">Dashboard</NavLink>
+        )}
       </nav>
+
       <div className="header-actions">
-        <Link className="text-link" to="/login">Log in</Link>
-        <Link className="button button-dark" to="/register">Get started</Link>
+        {token ? (
+          <button
+            className="button button-dark"
+            onClick={handleLogout}
+          >
+            Logout
+          </button>
+        ) : (
+          <>
+            <Link className="text-link" to="/login">
+              Log in
+            </Link>
+
+            <Link className="button button-dark" to="/register">
+              Get started
+            </Link>
+          </>
+        )}
       </div>
     </header>
   );
 }
 
+
 function Home({ blogs }) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All");
 
-const filteredBlogs = blogs.filter((blog) => {
-  const matchesSearch =
-    `${blog.title} ${blog.excerpt} ${blog.content || ""}`
-      .toLowerCase()
-      .includes(search.toLowerCase());
+  const filteredBlogs = blogs.filter((blog) => {
+    const matchesSearch =
+      `${blog.title} ${blog.excerpt} ${blog.author}`
+        .toLowerCase()
+        .includes(search.toLowerCase());
 
-  const matchesCategory =
-    category === "All" || blog.category === category;
+    const matchesCategory =
+      category === "All" || blog.category === category;
 
-  return matchesSearch && matchesCategory;
-});
+    return matchesSearch && matchesCategory;
+  });
+
+  const categories = [
+    "All",
+    ...new Set(blogs.map((blog) => blog.category)),
+  ];
 
   return (
-    <>
+    <main className="content">
       <section className="hero">
         <span className="eyebrow">A little space for big ideas</span>
-        <h1>Stories worth<br /> <span>stopping for.</span></h1>
+        <h1>Stories worth stopping for.</h1>
         <p>Fresh perspectives, thoughtful stories, and ideas to take with you.</p>
-        <Link to="/create" className="button button-dark">Write a story ↗</Link>
-        <div className="hero-decoration">✳</div>
+        <Link to="/create" className="button button-dark">
+          Write a story ↗
+        </Link>
       </section>
 
-      <main className="content">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">THE JOURNAL</span>
-            <h2>Explore stories</h2>
-          </div>
-         <span className="muted">{filteredBlogs.length} stories</span>
-        </div>
+      <section>
+        <h2>Explore stories</h2>
 
         <input
           className="search"
-          placeholder="Search stories or authors..."
+          placeholder="Search blogs..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
 
-        <div className="categories">
-          {["All", "Lifestyle", "Technology", "Creativity"].map((item) => (
-            <button
-              key={item}
-              className={category === item ? "chip active" : "chip"}
-              onClick={() => setCategory(item)}
-            >
-              {item}
-            </button>
-          ))}
-        </div>
         <select
-  value={category}
-  onChange={(e) => setCategory(e.target.value)}
->
-  <option value="All">All Categories</option>
-
-  {[...new Set(blogs.map((blog) => blog.category))].map((item) => (
-    <option key={item} value={item}>
-      {item}
-    </option>
-  ))}
-</select>
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+        >
+          {categories.map((item) => (
+            <option key={item} value={item}>
+              {item === "All" ? "All Categories" : item}
+            </option>
+          ))}
+        </select>
 
         <div className="blog-grid">
           {filteredBlogs.map((blog) => (
             <article className="blog-card" key={blog._id}>
-              <div className={`card-art ${blog.color}`}>
-                <span>{blog.category}</span>
-                <span className="art-symbol">✳</span>
-              </div>
               <div className="card-body">
-                <div className="muted small">{blog.date} · {blog.read}</div>
-                <h3><Link to={`/blog/${blog._id || blog.id}`}>{blog.title}</Link></h3>
+                <span>{blog.category}</span>
+                <h3>
+                  <Link to={`/blog/${blog._id}`}>
+                    {blog.title}
+                  </Link>
+                </h3>
                 <p>{blog.excerpt}</p>
-                <div className="author">✦ &nbsp;{blog.author}</div>
+                <span>By {blog.author}</span>
               </div>
             </article>
           ))}
-          {filteredBlogs.length === 0 && <p>No stories found. Try another search.</p>}
         </div>
-      </main>
-      <footer>inkwell. <span>Made for curious minds.</span></footer>
-    </>
+
+        {filteredBlogs.length === 0 && (
+          <p>No blogs found.</p>
+        )}
+      </section>
+    </main>
   );
 }
 
@@ -304,126 +328,132 @@ function AuthLayout({ title, subtitle, children }) {
 }
 
 
-function Dashboard({ blogs, setBlogs }) {
+function Dashboard({onRefresh}) {
   const navigate = useNavigate();
 
-  async function handleDelete(id) {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this blog?"
-    );
+  const [blogs, setBlogs] = useState([]);
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-    if (!confirmed) return;
+  const token = sessionStorage.getItem("inkwell_token");
+
+  useEffect(() => {
+    async function loadDashboard() {
+      try {
+        const [blogResult, profileResult] = await Promise.all([
+          getMyBlogs(token),
+          getMyProfile(token)
+        ]);
+
+        setBlogs(blogResult.blogs || []);
+        setUser(profileResult.user);
+      } catch (err) {
+        setError(err.message || "Could not load dashboard");
+
+        if (
+          err.message.toLowerCase().includes("token") ||
+          err.message.toLowerCase().includes("login")
+        ) {
+          sessionStorage.removeItem("inkwell_token");
+          sessionStorage.removeItem("inkwell_user");
+          navigate("/login");
+        }
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadDashboard();
+  }, [token, navigate]);
+
+  async function handleDelete(id) {
+    if (!window.confirm("Are you sure you want to delete this blog?")) {
+      return;
+    }
 
     try {
-      const token = sessionStorage.getItem("inkwell_token");
-
       await deleteBlog(id, token);
 
-      setBlogs((previous) =>
-        previous.filter((blog) => blog._id !== id)
+      setBlogs(previous =>
+        previous.filter(blog => blog._id !== id)
       );
-
-      alert("Blog deleted successfully!");
-    } catch (error) {
-      alert(error.message || "Could not delete blog");
+      await onRefresh();
+    } catch (err) {
+      alert(err.message || "Could not delete blog");
     }
   }
+
+  if (loading) return <main className="content">Loading dashboard...</main>;
+
+  if (error) return <main className="content">{error}</main>;
 
   return (
     <main className="dashboard content">
       <span className="eyebrow">YOUR WORKSPACE</span>
-      <h1>Your dashboard.</h1>
-      <p className="muted">A home for your ideas and stories.</p>
+
+      <h1>Welcome, {user?.name}!</h1>
+
+      <section className="profile-card">
+        <h2>Your Profile</h2>
+        <p><strong>Name:</strong> {user?.name}</p>
+        <p><strong>Email:</strong> {user?.email}</p>
+      </section>
 
       <div className="stats">
         <div>
-          <span>Stories</span>
+          <span>Your Stories</span>
           <strong>{blogs.length}</strong>
         </div>
+
         <div>
           <span>Categories</span>
-          <strong>{new Set(blogs.map(b => b.category)).size}</strong>
-        </div>
-        <div>
-          <span>Workspace</span>
-          <strong>Ready</strong>
+          <strong>
+            {new Set(blogs.map(b => b.category)).size}
+          </strong>
         </div>
       </div>
 
       <div className="section-heading">
-        <h2>Recent stories</h2>
+        <h2>Your stories</h2>
         <Link className="button button-dark" to="/create">
           + New story
         </Link>
       </div>
 
-      {blogs.length === 0 && <p>No blogs published yet.</p>}
+      {blogs.length === 0 ? (
+        <p>You haven't published any blogs yet.</p>
+      ) : (
+        blogs.map(blog => (
+          <article className="dashboard-row" key={blog._id}>
+            <div>
+              <strong>{blog.title}</strong>
+              <p className="muted small">
+                {blog.category}
+              </p>
+            </div>
 
-      {blogs.map((blog) => (
-        <article className="dashboard-row" key={blog._id}>
-          <div>
-            <strong>{blog.title}</strong>
-            <p className="muted small">{blog.category}</p>
-          </div>
+            <div className="dashboard-actions">
+              <Link to={`/blog/${blog._id}`}>View</Link>
 
-          <div className="dashboard-actions">
-            <button
-              type="button"
-              onClick={() => navigate(`/edit/${blog._id}`)}
-            >
-             Edit
-            </button>
+              <button
+                onClick={() => navigate(`/edit/${blog._id}`)}
+              >
+                Edit
+              </button>
 
-            <button
-              type="button"
-              onClick={() => handleDelete(blog._id)}
-            >
-             Delete
-            </button>
-          </div>
-        </article>
-      ))}
+              <button
+                onClick={() => handleDelete(blog._id)}
+              >
+                Delete
+              </button>
+            </div>
+          </article>
+        ))
+      )}
     </main>
   );
-
-  return (
-    <main className="dashboard content">
-      <span className="eyebrow">YOUR WORKSPACE</span>
-      <h1>Your dashboard.</h1>
-      <p className="muted">A home for your ideas and stories.</p>
-      <div className="stats">
-        <div><span>Stories</span><strong>{blogs.length}</strong></div>
-        <div><span>Categories</span><strong>{new Set(blogs.map(b => b.category)).size}</strong></div>
-        <div><span>Workspace</span><strong>Ready</strong></div>
-      </div>
-      <div className="section-heading">
-        <h2>Recent stories</h2>
-        <Link className="button button-dark" to="/create">+ New story</Link>
-      </div>
-      {blogs.map((blog) => (
-        <article className="dashboard-row" key={blog.id}>
-          <div><strong>{blog.title}</strong><p className="muted small">{blog.category} · {blog.date}</p></div>
-          <span className="status">Draft / Demo</span>
-        </article>
-      ))}
-      <p className="muted small">Demo dashboard: accounts and stories are not saved to a server yet.</p>
-    <button
-  type="button"
-  onClick={() => navigate(`/edit/${blog._id}`)}
->
-  Edit
-</button>
-
-<button
-  type="button"
-  onClick={() => handleDelete(blog._id)}
->
-  Delete
-</button>
-</main>
-  );
 }
-
 function CreateBlog({ onCreate }) {
   const navigate = useNavigate();
 
@@ -433,34 +463,36 @@ function CreateBlog({ onCreate }) {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
-  async function handleSubmit(e) {
-    e.preventDefault();
-    setError("");
+ 
+async function handleSubmit(e) {
+  e.preventDefault();
+  setError("");
 
-    const token = sessionStorage.getItem("inkwell_token");
+  const token = sessionStorage.getItem("inkwell_token");
 
-    if (!token) {
-      setError("Please log in before creating a blog.");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const result = await createBlog(
-        { title, category, excerpt },
-        token
-      );
-
-      onCreate(result.blog);
-
-      navigate("/");
-    } catch (err) {
-      setError(err.message || "Could not create blog.");
-    } finally {
-      setLoading(false);
-    }
+  if (!token) {
+    setError("Please log in first.");
+    navigate("/login");
+    return;
   }
+
+  setLoading(true);
+
+  try {
+    const result = await createBlog(
+      { title, category, excerpt, content: "" },
+      token
+    );
+
+    onCreate(result.blog);
+    navigate("/dashboard");
+
+  } catch (err) {
+    setError(err.message || "Could not create blog.");
+  } finally {
+    setLoading(false);
+  }
+}
 
   return (
     <main className="auth-page">
@@ -650,42 +682,41 @@ function BlogDetails() {
   );
 }
 
+
+function ProtectedRoute({ children }) {
+  const token = sessionStorage.getItem("inkwell_token");
+
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+}
+
 function AppContent() {
   const [blogs, setBlogs] = useState([]);
   const [blogsLoading, setBlogsLoading] = useState(true);
   const [blogsError, setBlogsError] = useState("");
 
 
-useEffect(() => {
-  let cancelled = false;
-
-  async function loadBlogs() {
+ async function loadBlogs() {
     try {
       setBlogsLoading(true);
       setBlogsError("");
 
       const result = await getBlogs();
-
-      if (!cancelled) {
-        setBlogs(result.blogs || []);
-      }
+      setBlogs(result.blogs || []);
     } catch (error) {
-      if (!cancelled) {
-        setBlogsError(error.message || "Could not load blogs.");
-      }
+      setBlogsError(error.message || "Could not load blogs.");
     } finally {
-      if (!cancelled) {
-        setBlogsLoading(false);
-      }
+      setBlogsLoading(false);
     }
   }
 
-  loadBlogs();
+  useEffect(() => {
+    loadBlogs();
+  }, []);
 
-  return () => {
-    cancelled = true;
-  };
-}, []);
 
   function addBlog(blog) {
     setBlogs((previousBlogs) => [blog, ...previousBlogs]);
@@ -702,12 +733,11 @@ useEffect(() => {
         <Route path="/" element={<Home blogs={blogs} />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
-        <Route path="/dashboard"element={<Dashboard blogs={blogs} setBlogs={setBlogs} />} />
-        <Route path="/create" element={<CreateBlog onCreate={addBlog} />} />
+        <Route path="/dashboard" element={<ProtectedRoute><Dashboard onRefresh={loadBlogs} /> </ProtectedRoute>}/>
         <Route path="/blog/:id" element={<BlogDetails />} />
-        <Route path="/edit/:id" element={<EditBlog />} />
-      </Routes>
-    </>
+        <Route path="/create"element={<ProtectedRoute><CreateBlog onCreate={addBlog} /></ProtectedRoute> }/>
+        <Route path="/edit/:id"element={<ProtectedRoute> <EditBlog /></ProtectedRoute>}/>
+        </Routes></>
   );
 }
 
