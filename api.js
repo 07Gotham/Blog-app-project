@@ -1,15 +1,16 @@
+
 const API_URL = "http://localhost:5000/api";
 
 async function request(path, options = {}) {
+  const token = options.token || sessionStorage.getItem("inkwell_token");
+
   const response = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       "Content-Type": "application/json",
-      ...(options.token
-        ? { Authorization: `Bearer ${options.token}` }
-        : {}),
-      ...options.headers
-    }
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    },
   });
 
   const data = await response.json().catch(() => ({}));
@@ -20,7 +21,6 @@ async function request(path, options = {}) {
 
   return data;
 }
-
 export function registerUser(details) {
   return request("/auth/register", {
     method: "POST",
@@ -36,7 +36,11 @@ export function loginUser(details) {
 }
 
 export function getBlogs() {
-  return request("/blogs");
+  const token = sessionStorage.getItem("inkwell_token");
+
+  return request("/blogs", {
+    token
+  });
 }
 
 export function getBlogById(id) {
@@ -77,3 +81,13 @@ export function searchBlogs(search, category) {
 
   return request(`/blogs?${params.toString()}`);
 }
+
+
+export function getMyBlogs(token) {
+  return request("/my-blogs", { token });
+}
+
+export function getMyProfile(token) {
+  return request("/auth/me", { token });
+}
+
