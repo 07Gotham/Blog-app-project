@@ -166,6 +166,25 @@ app.post("/api/auth/login", async (req, res) => {
   }
 });
 
+
+app.get("/api/auth/me", authenticateToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.auth.sub).select("name email");
+
+    if (!user) {
+      return res.status(404).json({
+        message: "User not found"
+      });
+    }
+
+    res.json({ user });
+  } catch (error) {
+    res.status(500).json({
+      message: "Could not retrieve profile"
+    });
+  }
+});
+
 // Create a blog — login required
 app.post("/api/blogs", authenticateToken, async (req, res) => {
   try {
@@ -236,8 +255,7 @@ app.get("/api/blogs", async (req, res) => {
       filter.$or = [
         { title: { $regex: search, $options: "i" } },
         { excerpt: { $regex: search, $options: "i" } },
-        { content: { $regex: search, $options: "i" } },
-        { author: { $regex: search, $options: "i" } }
+        { content: { $regex: search, $options: "i" } }
       ];
     }
 
@@ -246,7 +264,6 @@ app.get("/api/blogs", async (req, res) => {
       .lean();
 
     res.json({ blogs });
-
   } catch (error) {
     console.error(error);
     res.status(500).json({
@@ -255,6 +272,22 @@ app.get("/api/blogs", async (req, res) => {
   }
 });
 
+
+app.get("/api/my-blogs", authenticateToken, async (req, res) => {
+  try {
+    const blogs = await Blog.find({
+      userId: req.auth.sub
+    })
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ blogs });
+  } catch (error) {
+    res.status(500).json({
+      message: "Could not retrieve your blogs"
+    });
+  }
+});
 // Retrieve one blog by its database ID
 
 app.get("/api/blogs/:id", async (req, res) => {
@@ -265,7 +298,7 @@ app.get("/api/blogs/:id", async (req, res) => {
       });
     }
 
-    const blog = await Blog.findById(req.params.id).lean();
+    const blog = await Blog.findById(req.params.id);
 
     if (!blog) {
       return res.status(404).json({
@@ -276,7 +309,6 @@ app.get("/api/blogs/:id", async (req, res) => {
     res.json({ blog });
 
   } catch (error) {
-    console.error(error);
     res.status(500).json({
       message: "Could not retrieve blog"
     });
@@ -371,8 +403,8 @@ async function startServer() {
 
     console.log("Connected to MongoDB");
 
-    app.listen(5000, () => {
-      console.log(`Inkwell API running at http://localhost:${5000}`);
+    app.listen(PORT, () => {
+      console.log(`Inkwell API running at http://localhost:${PORT}`);
     });
   } catch (error) {
     console.error("MongoDB connection failed:", error.message);
